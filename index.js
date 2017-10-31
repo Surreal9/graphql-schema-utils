@@ -230,7 +230,7 @@ function diffObjectTypes(other, options) {
 function diffFields(thisType, otherType, options) {
     let diffs = [];
     for (let key in thisType.getFields()) {
-        if (thisType.getFields().hasOwnProperty(key)) {
+        if (Object.hasOwnProperty.call(thisType.getFields(), key)) {
             const thisField = thisType.getFields()[key];
             const otherField = otherType.getFields()[key];
             if (!otherField) {
@@ -253,7 +253,7 @@ function diffFields(thisType, otherType, options) {
         }
     }
     for (let key in otherType.getFields()) {
-        if (otherType.getFields().hasOwnProperty(key)) {
+        if (Object.hasOwnProperty.call(otherType.getFields(), key)) {
             const thisField = thisType.getFields()[key];
             const otherField = otherType.getFields()[key];
             if (!thisField) {
@@ -347,6 +347,7 @@ function diffEnumValues(thisVals, otherVals, thisType, otherType, options) {
                 diffs.push(new GraphQLDiff(thisType, otherType, DiffType.EnumDiff, description, true));
             }
             const deprecationStatus1 = getDeprecationStatus(thisVals.get(key));
+            
             const deprecationStatus2 = getDeprecationStatus(otherVals.get(key));
             if (deprecationStatus1 !== deprecationStatus2) {
                 const description = format('Deprecation diff on enum value {0}.{1}. {2}: `{3}` vs. {4}: `"{5}"`.', thisType.name, thisVals.get(key).name, options.labelForThis, deprecationStatus1, options.labelForOther, deprecationStatus2)
