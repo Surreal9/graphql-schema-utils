@@ -2,6 +2,8 @@
 
 const assert = require('assert'),
     buildSchema = require('graphql').buildSchema,
+    buildASTSchema = require('graphql').buildASTSchema,
+    parse = require('graphql').parse,
     GraphQLDiff = require('../lib/diff').GraphQLDiff,
     DiffType = require('../lib/diff').DiffType;
 
@@ -199,7 +201,7 @@ describe('GraphQLSchema', function () {
                 'interface NewInterface {\n' +
                 '    value: String\n' +
                 '}\n' +
-                'type FieldOption implements CmsItem, NewInterface {\n' +
+                'type FieldOption implements CmsItem & NewInterface {\n' +
                 '    contentId: ID!\n' +
                 '    type: String!\n' +
                 '    tags: [Tag!]\n' +
@@ -317,8 +319,8 @@ describe('GraphQLSchema', function () {
                 '    displayName: String!\n' +
                 '    value: [String]\n' +
                 '}';
-            const a = buildSchema(schema1);
-            const b = buildSchema(schema2);
+            const a = buildASTSchema(parse(schema1), { commentDescriptions: true });
+            const b = buildASTSchema(parse(schema2), { commentDescriptions: true });
             const diffs = a.diff(b);
             assert.equal(diffs.length, 4);
             assert(diffExists(diffs, new GraphQLDiff(a, b, DiffType.FieldDescriptionDiff, 'Description diff on field Query.FieldOption. this schema: `"Query for FieldOptions"` vs. other schema: `"FieldOption Query"`.', true)));
@@ -395,7 +397,7 @@ describe('GraphQLSchema', function () {
                 '    GREEN\n' +
                 '}\n' +
                 'enum Car {\n' +
-                '    # from Japan\n' +
+                '    "from Japan"\n' +
                 '    HONDA\n' +
                 '    BMW\n' +
                 '}';
@@ -411,7 +413,7 @@ describe('GraphQLSchema', function () {
                 '    BLACK\n' +
                 '}\n' +
                 'enum Car {\n' +
-                '    # honda\n' +
+                '    "honda"\n' +
                 '    HONDA\n' +
                 '    BMW\n' +
                 '}';
@@ -851,7 +853,7 @@ describe('GraphQLSchema', function () {
                 'interface NewInterface {\n' +
                 '    value: Int\n' +
                 '}\n' +
-                'type FieldOption implements CmsItem, NewInterface {\n' +
+                'type FieldOption implements CmsItem & NewInterface {\n' +
                 '    contentId: ID!\n' +
                 '    type: String!\n' +
                 '    tags: [Tag!]\n' +

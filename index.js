@@ -43,22 +43,24 @@
  */
 
 const GraphQLSchema = require('graphql/type/schema').GraphQLSchema,
-    GraphQLObjectType = require('graphql/type/definition').GraphQLObjectType,
-    GraphQLScalarType = require('graphql/type/definition').GraphQLScalarType,
-    GraphQLUnionType = require('graphql/type/definition').GraphQLUnionType,
-    GraphQLEnumType = require('graphql/type/definition').GraphQLEnumType,
-    GraphQLInputObjectType = require('graphql/type/definition').GraphQLInputObjectType,
-    GraphQLNonNull = require('graphql/type/definition').GraphQLNonNull,
-    GraphQLList = require('graphql/type/definition').GraphQLList,
-    GraphQLInterfaceType = require('graphql/type/definition').GraphQLInterfaceType,
-    GraphQLDiff = require('./lib/diff').GraphQLDiff,
-    DiffType = require('./lib/diff').DiffType,
-    cloneDeep = require('lodash.clonedeep');
+  GraphQLObjectType = require('graphql/type/definition').GraphQLObjectType,
+  GraphQLScalarType = require('graphql/type/definition').GraphQLScalarType,
+  GraphQLUnionType = require('graphql/type/definition').GraphQLUnionType,
+  GraphQLEnumType = require('graphql/type/definition').GraphQLEnumType,
+  GraphQLInputObjectType = require('graphql/type/definition')
+    .GraphQLInputObjectType,
+  isNonNullType = require('graphql/type/definition').isNonNullType,
+  isListType = require('graphql/type/definition').isListType,
+  GraphQLInterfaceType = require('graphql/type/definition')
+    .GraphQLInterfaceType,
+  GraphQLDiff = require('./lib/diff').GraphQLDiff,
+  DiffType = require('./lib/diff').DiffType,
+  cloneDeep = require('lodash.clonedeep');
 
 let labelForThisSchema = 'this schema',
-    labelForOtherSchema = 'other schema',
-    labelForThisType = 'this type',
-    labelForOtherType = 'other type';
+  labelForOtherSchema = 'other schema',
+  labelForThisType = 'this type',
+  labelForOtherType = 'other type';
 
 // Diff extensions
 GraphQLSchema.prototype.diff = diffSchema;
@@ -70,7 +72,8 @@ GraphQLUnionType.prototype.diff = diffUnionTypes;
 // Merge extensions
 GraphQLSchema.prototype.merge = mergeSchema;
 GraphQLObjectType.prototype.merge = GraphQLInterfaceType.prototype.merge = GraphQLInputObjectType.prototype.merge = mergeObjectTypes;
-GraphQLList.prototype.merge = GraphQLNonNull.prototype.merge = GraphQLScalarType.prototype.merge = GraphQLEnumType.prototype.merge = overwriteType;
+// Todo: fix
+// GraphQLList.prototype.merge = GraphQLNonNull.prototype.merge = GraphQLScalarType.prototype.merge = GraphQLEnumType.prototype.merge = overwriteType;
 GraphQLUnionType.prototype.merge = mergeUnionTypes;
 
 /*****************************************************
@@ -87,26 +90,38 @@ GraphQLUnionType.prototype.merge = mergeUnionTypes;
  * @function external:GraphQLSchema#diff
  */
 function diffSchema(other, options) {
-    options = setDefaultDiffOptions.call(this, options);
-    let diffs = [];
-    if (!other || !(other instanceof GraphQLSchema)) {
-        throw new TypeError('Cannot diff with null/undefined or non-GraphQLSchema object.');
-    }
+  options = setDefaultDiffOptions.call(this, options);
+  let diffs = [];
+  if (!other || !(other instanceof GraphQLSchema)) {
+    throw new TypeError(
+      'Cannot diff with null/undefined or non-GraphQLSchema object.'
+    );
+  }
 
-    for (let key in this.getTypeMap()) {
-        const thisType = this.getTypeMap()[key];
-        const otherType = other.getTypeMap()[key];
-        diffs = diffs.concat(thisType.diff(otherType, options));
+  for (let key in this.getTypeMap()) {
+    const thisType = this.getTypeMap()[key];
+    const otherType = other.getTypeMap()[key];
+    diffs = diffs.concat(thisType.diff(otherType, options));
+  }
+  for (let key in other.getTypeMap()) {
+    const thisType = this.getTypeMap()[key];
+    if (!thisType) {
+      const description = format(
+        'Type missing from {0}: `{1}`.',
+        options.labelForThis,
+        key
+      );
+      const diff = new GraphQLDiff(
+        thisType,
+        other.getTypeMap()[key],
+        DiffType.TypeMissing,
+        description,
+        true
+      );
+      diffs.push(diff);
     }
-    for (let key in other.getTypeMap()) {
-        const thisType = this.getTypeMap()[key];
-        if (!thisType) {
-            const description = format('Type missing from {0}: `{1}`.', options.labelForThis, key);
-            const diff = new GraphQLDiff(thisType, other.getTypeMap()[key], DiffType.TypeMissing, description, true);
-            diffs.push(diff);
-        }
-    }
-    return diffs;
+  }
+  return diffs;
 }
 
 /**
@@ -119,16 +134,31 @@ function diffSchema(other, options) {
  * @function external:GraphQLScalarType#diff
  */
 function diffScalarTypes(other, options) {
-    options = setDefaultDiffOptions.call(this, options);
-    let commonDiffs = commonTypeDiffs.call(this, other, options);
-    if (commonDiffs) {
-        return commonDiffs;
-    }
-    if (this.description !== other.description) {
-        const description = format('Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.', this.name, options.labelForThis, this.description, options.labelForOther, other.description);
-        return [new GraphQLDiff(this, other, DiffType.TypeDescriptionDiff, description, true)];
-    }
-    return [];
+  options = setDefaultDiffOptions.call(this, options);
+  let commonDiffs = commonTypeDiffs.call(this, other, options);
+  if (commonDiffs) {
+    return commonDiffs;
+  }
+  if (this.description !== other.description) {
+    const description = format(
+      'Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.',
+      this.name,
+      options.labelForThis,
+      this.description,
+      options.labelForOther,
+      other.description
+    );
+    return [
+      new GraphQLDiff(
+        this,
+        other,
+        DiffType.TypeDescriptionDiff,
+        description,
+        true
+      ),
+    ];
+  }
+  return [];
 }
 
 /**
@@ -141,28 +171,45 @@ function diffScalarTypes(other, options) {
  * @function external:GraphQLEnumType#diff
  */
 function diffEnumTypes(other, options) {
-    options = setDefaultDiffOptions.call(this, options);
-    let commonDiffs = commonTypeDiffs.call(this, other, options);
-    if (commonDiffs) {
-        return commonDiffs;
-    }
-    let diffs = [];
-    let thisEnumValues = this.getValues();
-    let otherEnumValues = other.getValues();
-    let thisEnumValuesMap = new Map();
-    let otherEnumValuesMap = new Map();
-    for (let i = 0; i < thisEnumValues.length; i ++) {
-        thisEnumValuesMap.set(thisEnumValues[i].name, thisEnumValues[i]);
-    }
-    for (let i = 0; i < otherEnumValues.length; i++) {
-        otherEnumValuesMap.set(otherEnumValues[i].name, otherEnumValues[i]);
-    }
-    diffs = diffs.concat(diffEnumValues(thisEnumValuesMap, otherEnumValuesMap, this, other, options));
-    if (this.description !== other.description) {
-        const description = format('Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.', this.name, options.labelForThis, this.description, options.labelForOther, other.description);
-        diffs.push(new GraphQLDiff(this, other, DiffType.TypeDescriptionDiff, description, true));
-    }
-    return dedupe(diffs);
+  options = setDefaultDiffOptions.call(this, options);
+  let commonDiffs = commonTypeDiffs.call(this, other, options);
+  if (commonDiffs) {
+    return commonDiffs;
+  }
+  let diffs = [];
+  let thisEnumValues = this.getValues();
+  let otherEnumValues = other.getValues();
+  let thisEnumValuesMap = new Map();
+  let otherEnumValuesMap = new Map();
+  for (let i = 0; i < thisEnumValues.length; i++) {
+    thisEnumValuesMap.set(thisEnumValues[i].name, thisEnumValues[i]);
+  }
+  for (let i = 0; i < otherEnumValues.length; i++) {
+    otherEnumValuesMap.set(otherEnumValues[i].name, otherEnumValues[i]);
+  }
+  diffs = diffs.concat(
+    diffEnumValues(thisEnumValuesMap, otherEnumValuesMap, this, other, options)
+  );
+  if (this.description !== other.description) {
+    const description = format(
+      'Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.',
+      this.name,
+      options.labelForThis,
+      this.description,
+      options.labelForOther,
+      other.description
+    );
+    diffs.push(
+      new GraphQLDiff(
+        this,
+        other,
+        DiffType.TypeDescriptionDiff,
+        description,
+        true
+      )
+    );
+  }
+  return dedupe(diffs);
 }
 
 /**
@@ -175,28 +222,59 @@ function diffEnumTypes(other, options) {
  * @function external:GraphQLUnionType#diff
  */
 function diffUnionTypes(other, options) {
-    options = setDefaultDiffOptions.call(this, options);
-    let commonDiffs = commonTypeDiffs.call(this, other, options);
-    if (commonDiffs) {
-        return commonDiffs;
-    }
-    let diffs = [];
-    if (this.description !== other.description) {
-        const description = format('Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.', this.name, options.labelForThis, this.description, options.labelForOther, other.description);
-        diffs.push(new GraphQLDiff(this, other, DiffType.TypeDescriptionDiff, description, true));
-    }
-    const thisType = this.getTypes().map(function (type) {
-        return type.name;
-    }).sort().join(' | ');
-    const otherType = other.getTypes().map(function (type) {
-        return type.name;
-    }).sort().join(' | ');
+  options = setDefaultDiffOptions.call(this, options);
+  let commonDiffs = commonTypeDiffs.call(this, other, options);
+  if (commonDiffs) {
+    return commonDiffs;
+  }
+  let diffs = [];
+  if (this.description !== other.description) {
+    const description = format(
+      'Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.',
+      this.name,
+      options.labelForThis,
+      this.description,
+      options.labelForOther,
+      other.description
+    );
+    diffs.push(
+      new GraphQLDiff(
+        this,
+        other,
+        DiffType.TypeDescriptionDiff,
+        description,
+        true
+      )
+    );
+  }
+  const thisType = this.getTypes()
+    .map(function(type) {
+      return type.name;
+    })
+    .sort()
+    .join(' | ');
+  const otherType = other
+    .getTypes()
+    .map(function(type) {
+      return type.name;
+    })
+    .sort()
+    .join(' | ');
 
-    if (thisType !== otherType) {
-        const description = format('Difference in union type {0}. {1}: `{2}` vs. {3}: `{4}`.', this.name, options.labelForThis, thisType, options.labelForOther, otherType);
-        diffs.push(new GraphQLDiff(this, other, DiffType.UnionTypeDiff, description, true));
-    }
-    return diffs;
+  if (thisType !== otherType) {
+    const description = format(
+      'Difference in union type {0}. {1}: `{2}` vs. {3}: `{4}`.',
+      this.name,
+      options.labelForThis,
+      thisType,
+      options.labelForOther,
+      otherType
+    );
+    diffs.push(
+      new GraphQLDiff(this, other, DiffType.UnionTypeDiff, description, true)
+    );
+  }
+  return diffs;
 }
 
 /**
@@ -211,157 +289,382 @@ function diffUnionTypes(other, options) {
  * @function external:GraphQLInputObjectType#diff
  */
 function diffObjectTypes(other, options) {
-    options = setDefaultDiffOptions.call(this, options);
-    let commonDiffs = commonTypeDiffs.call(this, other, options);
-    if (commonDiffs) {
-        return commonDiffs;
-    }
-    let diffs = diffFields(this, other, options);
-    if (this.description !== other.description) {
-        const description = format('Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.', this.name, options.labelForThis, this.description, options.labelForOther, other.description);
-        diffs.push(new GraphQLDiff(this, other, DiffType.TypeDescriptionDiff, description, true));
-    }
-    if (this instanceof GraphQLObjectType) {
-        diffs = diffs.concat(diffInterfaces(this, other, options)).concat(diffInterfaces(other, this, options));
-    }
-    return diffs;
+  options = setDefaultDiffOptions.call(this, options);
+  let commonDiffs = commonTypeDiffs.call(this, other, options);
+  if (commonDiffs) {
+    return commonDiffs;
+  }
+  let diffs = diffFields(this, other, options);
+  if (this.description !== other.description) {
+    const description = format(
+      'Description diff on type {0}. {1}: `"{2}"` vs. {3}: `"{4}"`.',
+      this.name,
+      options.labelForThis,
+      this.description,
+      options.labelForOther,
+      other.description
+    );
+    diffs.push(
+      new GraphQLDiff(
+        this,
+        other,
+        DiffType.TypeDescriptionDiff,
+        description,
+        true
+      )
+    );
+  }
+  if (this instanceof GraphQLObjectType) {
+    diffs = diffs
+      .concat(diffInterfaces(this, other, options))
+      .concat(diffInterfaces(other, this, options));
+  }
+  return diffs;
 }
 
 function diffFields(thisType, otherType, options) {
-    let diffs = [];
-    for (let key in thisType.getFields()) {
-        if (Object.hasOwnProperty.call(thisType.getFields(), key)) {
-            const thisField = thisType.getFields()[key];
-            const otherField = otherType.getFields()[key];
-            if (!otherField) {
-                const description = format('Field missing from {0}: `{1}.{2}`.', options.labelForOther, thisType.name, getFieldString(thisField));
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.FieldMissing, description, false));
-                continue;
-            }
-            const thisTypeName = getFieldTypeName(thisField);
-            const otherTypeName = getFieldTypeName(otherField);
-            if (thisTypeName !== otherTypeName) {
-                const description = format('Field type changed on field {0}.{1} from : `"{2}"` to `"{3}"`.', thisType, thisField.name, thisTypeName, otherTypeName);
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.FieldDiff, description, false));
-            }
-            if (thisField.description !== otherField.description) {
-                const description = format('Description diff on field {0}.{1}. {2}: `"{3}"` vs. {4}: `"{5}"`.', thisType.name, key, options.labelForThis, thisField.description, options.labelForOther, otherField.description)
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.FieldDescriptionDiff, description, true));
-            }
-            diffs = diffs.concat(diffArguments(thisType, otherType, thisField, otherField, options));
-            diffs = diffs.concat(diffArgDescriptions(thisType, otherType, thisField, otherField, options));
-        }
+  let diffs = [];
+  for (let key in thisType.getFields()) {
+    if (Object.hasOwnProperty.call(thisType.getFields(), key)) {
+      const thisField = thisType.getFields()[key];
+      const otherField = otherType.getFields()[key];
+      if (!otherField) {
+        const description = format(
+          'Field missing from {0}: `{1}.{2}`.',
+          options.labelForOther,
+          thisType.name,
+          getFieldString(thisField)
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.FieldMissing,
+            description,
+            false
+          )
+        );
+        continue;
+      }
+      const thisTypeName = getFieldTypeName(thisField);
+      const otherTypeName = getFieldTypeName(otherField);
+      if (thisTypeName !== otherTypeName) {
+        const description = format(
+          'Field type changed on field {0}.{1} from : `"{2}"` to `"{3}"`.',
+          thisType,
+          thisField.name,
+          thisTypeName,
+          otherTypeName
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.FieldDiff,
+            description,
+            false
+          )
+        );
+      }
+      if (thisField.description !== otherField.description) {
+        const description = format(
+          'Description diff on field {0}.{1}. {2}: `"{3}"` vs. {4}: `"{5}"`.',
+          thisType.name,
+          key,
+          options.labelForThis,
+          thisField.description,
+          options.labelForOther,
+          otherField.description
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.FieldDescriptionDiff,
+            description,
+            true
+          )
+        );
+      }
+      diffs = diffs.concat(
+        diffArguments(thisType, otherType, thisField, otherField, options)
+      );
+      diffs = diffs.concat(
+        diffArgDescriptions(thisType, otherType, thisField, otherField, options)
+      );
     }
-    for (let key in otherType.getFields()) {
-        if (Object.hasOwnProperty.call(otherType.getFields(), key)) {
-            const thisField = thisType.getFields()[key];
-            const otherField = otherType.getFields()[key];
-            if (!thisField) {
-                const description = format('Field missing from {0}: `{1}.{2}`.', options.labelForThis, thisType.name, getFieldString(otherField));
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.FieldMissing, description, true));
-            }
-        }
+  }
+  for (let key in otherType.getFields()) {
+    if (Object.hasOwnProperty.call(otherType.getFields(), key)) {
+      const thisField = thisType.getFields()[key];
+      const otherField = otherType.getFields()[key];
+      if (!thisField) {
+        const description = format(
+          'Field missing from {0}: `{1}.{2}`.',
+          options.labelForThis,
+          thisType.name,
+          getFieldString(otherField)
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.FieldMissing,
+            description,
+            true
+          )
+        );
+      }
     }
-    return diffs;
+  }
+  return diffs;
 }
 
-function diffArgDescriptions(thisType, otherType, thisField, otherField, options) {
-    if (!thisField.args || !otherField.args) {
-        return [];
-    }
-    const thisArgs = new Map(thisField.args.map(function (arg) {
-        return [arg.name, arg];
-    }));
-    return otherField.args.map(function (arg) {
-        if (thisArgs.has(arg.name)) {
-            const thisDescription = thisArgs.get(arg.name).description;
-            const otherDescription = arg.description;
-            if (thisDescription !== otherDescription) {
-                const description = format('Description diff on argument {0}.{1}({2}). {3}: `"{4}"` vs. {5}: `"{6}"`.', thisType.name, thisField.name, arg.name, options.labelForThis, thisDescription, options.labelForOther, otherDescription);
-                const diff = new GraphQLDiff(thisType, otherType, DiffType.ArgDescriptionDiff, description, true);
-                diff.thisField = thisField;
-                diff.otherField = otherField;
-                return diff;
-            }
+function diffArgDescriptions(
+  thisType,
+  otherType,
+  thisField,
+  otherField,
+  options
+) {
+  if (!thisField.args || !otherField.args) {
+    return [];
+  }
+  const thisArgs = new Map(
+    thisField.args.map(function(arg) {
+      return [arg.name, arg];
+    })
+  );
+  return otherField.args
+    .map(function(arg) {
+      if (thisArgs.has(arg.name)) {
+        const thisDescription = thisArgs.get(arg.name).description;
+        const otherDescription = arg.description;
+        if (thisDescription !== otherDescription) {
+          const description = format(
+            'Description diff on argument {0}.{1}({2}). {3}: `"{4}"` vs. {5}: `"{6}"`.',
+            thisType.name,
+            thisField.name,
+            arg.name,
+            options.labelForThis,
+            thisDescription,
+            options.labelForOther,
+            otherDescription
+          );
+          const diff = new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.ArgDescriptionDiff,
+            description,
+            true
+          );
+          diff.thisField = thisField;
+          diff.otherField = otherField;
+          return diff;
         }
-        return null;
-    }).filter(function (str) {
-        return !!str;
+      }
+      return null;
+    })
+    .filter(function(str) {
+      return !!str;
     });
 }
 function diffArguments(thisType, otherType, thisField, otherField, options) {
-    const diffs = [];
-    if (!thisField.args || !otherField.args) {
-        return [];
+  const diffs = [];
+  if (!thisField.args || !otherField.args) {
+    return [];
+  }
+  let oldArgsMap = getArgumentMap(thisField.args);
+  let newArgsMap = getArgumentMap(otherField.args);
+  oldArgsMap.forEach(function(value, key) {
+    if (!newArgsMap.has(key)) {
+      const description = format(
+        'Argument missing from {0}: `{1}.{2}({3}: {4})`.',
+        options.labelForOther,
+        thisType,
+        thisField.name,
+        key,
+        value
+      );
+      diffs.push(
+        new GraphQLDiff(
+          thisType,
+          otherType,
+          DiffType.ArgDiff,
+          description,
+          false
+        )
+      );
+    } else if (newArgsMap.get(key) !== value) {
+      const description = format(
+        'Argument type diff on field {0}.{1}. {2}: `{3}: {4}` vs. {5}: `{6}: {7}.`',
+        thisType,
+        thisField.name,
+        options.labelForThis,
+        key,
+        value,
+        options.labelForOther,
+        key,
+        newArgsMap.get(key)
+      );
+      diffs.push(
+        new GraphQLDiff(
+          thisType,
+          otherType,
+          DiffType.ArgDiff,
+          description,
+          false
+        )
+      );
     }
-    let oldArgsMap = getArgumentMap(thisField.args);
-    let newArgsMap = getArgumentMap(otherField.args);
-    oldArgsMap.forEach(function(value, key) {
-        if (!newArgsMap.has(key)) {
-            const description = format('Argument missing from {0}: `{1}.{2}({3}: {4})`.', options.labelForOther, thisType, thisField.name, key, value);
-            diffs.push(new GraphQLDiff(thisType, otherType, DiffType.ArgDiff, description, false));
-        } else if (newArgsMap.get(key) !== value) {
-            const description = format('Argument type diff on field {0}.{1}. {2}: `{3}: {4}` vs. {5}: `{6}: {7}.`', thisType, thisField.name, options.labelForThis, key, value, options.labelForOther, key, newArgsMap.get(key));
-            diffs.push(new GraphQLDiff(thisType, otherType, DiffType.ArgDiff, description, false));
-        }
-    });
-    newArgsMap.forEach(function(value, key) {
-       if (!oldArgsMap.has(key)) {
-           const description = format('Argument missing from {0}: `{1}.{2}({3}: {4})`.', options.labelForThis, otherType, otherField.name, key, value);
-           diffs.push(new GraphQLDiff(thisType, otherType, DiffType.ArgDiff, description, true));
-       }
-    });
-    return diffs;
+  });
+  newArgsMap.forEach(function(value, key) {
+    if (!oldArgsMap.has(key)) {
+      const description = format(
+        'Argument missing from {0}: `{1}.{2}({3}: {4})`.',
+        options.labelForThis,
+        otherType,
+        otherField.name,
+        key,
+        value
+      );
+      diffs.push(
+        new GraphQLDiff(
+          thisType,
+          otherType,
+          DiffType.ArgDiff,
+          description,
+          true
+        )
+      );
+    }
+  });
+  return diffs;
 }
 
 function diffInterfaces(thisType, otherType, options) {
-    if (!interfacesEqual(thisType, otherType) || !interfacesEqual(otherType, thisType)) {
-        const description = format('Interface diff on type {0}. {1}: `{2}` vs. {3}: `{4}`.', thisType.name, options.labelForThis, thisType.getInterfaces().join(', '), options.labelForOther, otherType.getInterfaces().join(', '));
-        return [new GraphQLDiff(thisType, otherType, DiffType.InterfaceDiff, description, false)];
-    }
-    return [];
+  if (
+    !interfacesEqual(thisType, otherType) ||
+    !interfacesEqual(otherType, thisType)
+  ) {
+    const description = format(
+      'Interface diff on type {0}. {1}: `{2}` vs. {3}: `{4}`.',
+      thisType.name,
+      options.labelForThis,
+      thisType.getInterfaces().join(', '),
+      options.labelForOther,
+      otherType.getInterfaces().join(', ')
+    );
+    return [
+      new GraphQLDiff(
+        thisType,
+        otherType,
+        DiffType.InterfaceDiff,
+        description,
+        false
+      ),
+    ];
+  }
+  return [];
 }
 
 function interfacesEqual(thisType, otherType) {
-    let match = true;
-    for (let i = 0; i < thisType.getInterfaces().length; i++) {
-        match = otherType.getInterfaces().some(function (item) {
-                return item.name === thisType.getInterfaces()[i].name;
-            }
-        );
-        if (!match) {
-            break;
-        }
+  let match = true;
+  for (let i = 0; i < thisType.getInterfaces().length; i++) {
+    match = otherType.getInterfaces().some(function(item) {
+      return item.name === thisType.getInterfaces()[i].name;
+    });
+    if (!match) {
+      break;
     }
-    return match;
+  }
+  return match;
 }
 function diffEnumValues(thisVals, otherVals, thisType, otherType, options) {
-    const diffs = [];
-    thisVals.forEach(function(value, key) {
-        if (!otherVals.get(key)) {
-            const description = format('Enum value missing from {0}: `"{1}.{2}"`.', options.labelForOther, otherType.name, thisVals.get(key).name);
-            diffs.push(new GraphQLDiff(thisType, otherType, DiffType.EnumDiff, description, false));
-        } else {
-            if (value.description !== otherVals.get(key).description) {
-                const description = format('Description diff on enum value {0}.{1}. {2}: `"{3}"` vs. {4}: `"{5}"`.', thisType.name, thisVals.get(key).name, options.labelForThis, thisVals.get(key).description, options.labelForOther, otherVals.get(key).description);
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.EnumDiff, description, true));
-            }
-            const deprecationStatus1 = getDeprecationStatus(thisVals.get(key));
-            
-            const deprecationStatus2 = getDeprecationStatus(otherVals.get(key));
-            if (deprecationStatus1 !== deprecationStatus2) {
-                const description = format('Deprecation diff on enum value {0}.{1}. {2}: `{3}` vs. {4}: `"{5}"`.', thisType.name, thisVals.get(key).name, options.labelForThis, deprecationStatus1, options.labelForOther, deprecationStatus2)
-                diffs.push(new GraphQLDiff(thisType, otherType, DiffType.EnumDiff, description, true));
-            }
-        }
-    });
-    otherVals.forEach(function(value, key){
-        if (!thisVals.get(key)) {
-            const description = format('Enum value missing from {0}: `"{1}.{2}"`.', options.labelForThis, otherType.name, otherVals.get(key).name);
-            diffs.push(new GraphQLDiff(thisType, otherType, DiffType.EnumDiff, description, true));
-        }
-    });
-    return diffs;
+  const diffs = [];
+  thisVals.forEach(function(value, key) {
+    if (!otherVals.get(key)) {
+      const description = format(
+        'Enum value missing from {0}: `"{1}.{2}"`.',
+        options.labelForOther,
+        otherType.name,
+        thisVals.get(key).name
+      );
+      diffs.push(
+        new GraphQLDiff(
+          thisType,
+          otherType,
+          DiffType.EnumDiff,
+          description,
+          false
+        )
+      );
+    } else {
+      if (value.description !== otherVals.get(key).description) {
+        const description = format(
+          'Description diff on enum value {0}.{1}. {2}: `"{3}"` vs. {4}: `"{5}"`.',
+          thisType.name,
+          thisVals.get(key).name,
+          options.labelForThis,
+          thisVals.get(key).description,
+          options.labelForOther,
+          otherVals.get(key).description
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.EnumDiff,
+            description,
+            true
+          )
+        );
+      }
+      const deprecationStatus1 = getDeprecationStatus(thisVals.get(key));
+
+      const deprecationStatus2 = getDeprecationStatus(otherVals.get(key));
+      if (deprecationStatus1 !== deprecationStatus2) {
+        const description = format(
+          'Deprecation diff on enum value {0}.{1}. {2}: `{3}` vs. {4}: `"{5}"`.',
+          thisType.name,
+          thisVals.get(key).name,
+          options.labelForThis,
+          deprecationStatus1,
+          options.labelForOther,
+          deprecationStatus2
+        );
+        diffs.push(
+          new GraphQLDiff(
+            thisType,
+            otherType,
+            DiffType.EnumDiff,
+            description,
+            true
+          )
+        );
+      }
+    }
+  });
+  otherVals.forEach(function(value, key) {
+    if (!thisVals.get(key)) {
+      const description = format(
+        'Enum value missing from {0}: `"{1}.{2}"`.',
+        options.labelForThis,
+        otherType.name,
+        otherVals.get(key).name
+      );
+      diffs.push(
+        new GraphQLDiff(
+          thisType,
+          otherType,
+          DiffType.EnumDiff,
+          description,
+          true
+        )
+      );
+    }
+  });
+  return diffs;
 }
 
 /**
@@ -369,14 +672,14 @@ function diffEnumValues(thisVals, otherVals, thisType, otherType, options) {
  * @returns {Map} mapping of argument name to field type name
  */
 function getArgumentMap(fieldArguments) {
-    let argumentMap = new Map();
-    if (fieldArguments) {
-        for (let j = 0; j < fieldArguments.length; j++) {
-            const fieldTypeName = getFieldTypeName(fieldArguments[j]);
-            argumentMap.set(fieldArguments[j].name, fieldTypeName);
-        }
+  let argumentMap = new Map();
+  if (fieldArguments) {
+    for (let j = 0; j < fieldArguments.length; j++) {
+      const fieldTypeName = getFieldTypeName(fieldArguments[j]);
+      argumentMap.set(fieldArguments[j].name, fieldTypeName);
     }
-    return argumentMap;
+  }
+  return argumentMap;
 }
 
 /**
@@ -385,61 +688,95 @@ function getArgumentMap(fieldArguments) {
  * @returns {String} field name
  */
 function getFieldTypeName(field) {
-    return buildTypeString(field.type)
+  return buildTypeString(field.type);
 }
 
 function buildTypeString(type) {
-    if (type instanceof GraphQLNonNull) {
-        return buildTypeString(type.ofType) + "!";
-    } else if (type instanceof GraphQLList) {
-        return "[" + buildTypeString(type.ofType) + "]";
-    } else {
-        return type.name;
-    }
+  if (isNonNullType(type)) {
+    return buildTypeString(type.ofType) + '!';
+  } else if (isListType(type)) {
+    return '[' + buildTypeString(type.ofType) + ']';
+  } else {
+    return type.name;
+  }
 }
 
 function getDeprecationStatus(val) {
-    if (val.isDeprecated) {
-        return 'is deprecated (' + val.deprecationReason + ')';
-    }
-    return 'is not deprecated';
+  if (val.isDeprecated) {
+    return 'is deprecated (' + val.deprecationReason + ')';
+  }
+  return 'is not deprecated';
 }
 
 function commonTypeDiffs(other, options) {
-    if (!other) {
-        const description = format('Type missing from {0}: `{1}`.', options.labelForOther, this.name);
-        return [new GraphQLDiff(this, other, DiffType.TypeMissing, description, false)];
-    }
-    if (this.constructor.name !== other.constructor.name) {
-        const description = format('Type mismatch: {0}: `{1}: {2}` vs. {3}: `{4}: {5}`.', options.labelForThis, this.name, this.constructor.name, options.labelForOther, other.name, other.constructor.name);
-        return [new GraphQLDiff(this, other, DiffType.BaseTypeDiff, description, true)];
-    }
-    if (this.name !== other.name) {
-        const description = format('Type name difference. {0}: `{1}` vs. {2}: `{3}`.', options.labelForThis, this.name, options.labelForOther, other.name);
-        return [new GraphQLDiff(this, other, DiffType.TypeNameDiff, description, true)];
-    }
-    return null;
+  if (!other) {
+    const description = format(
+      'Type missing from {0}: `{1}`.',
+      options.labelForOther,
+      this.name
+    );
+    return [
+      new GraphQLDiff(this, other, DiffType.TypeMissing, description, false),
+    ];
+  }
+  if (this.constructor.name !== other.constructor.name) {
+    const description = format(
+      'Type mismatch: {0}: `{1}: {2}` vs. {3}: `{4}: {5}`.',
+      options.labelForThis,
+      this.name,
+      this.constructor.name,
+      options.labelForOther,
+      other.name,
+      other.constructor.name
+    );
+    return [
+      new GraphQLDiff(this, other, DiffType.BaseTypeDiff, description, true),
+    ];
+  }
+  if (this.name !== other.name) {
+    const description = format(
+      'Type name difference. {0}: `{1}` vs. {2}: `{3}`.',
+      options.labelForThis,
+      this.name,
+      options.labelForOther,
+      other.name
+    );
+    return [
+      new GraphQLDiff(this, other, DiffType.TypeNameDiff, description, true),
+    ];
+  }
+  return null;
 }
 
 function getFieldString(field) {
-    return field.name + getArgsString(field) + ': ' + field.type.toString();
+  return field.name + getArgsString(field) + ': ' + field.type.toString();
 }
 
 function getArgsString(field) {
-    if (!field.args || !field.args.length) {
-        return '';
-    }
-    return '(' + field.args.map(function (arg) {
-            const defaultVal = arg.defaultValue ? ' = ' + arg.defaultValue : '';
-            return arg.name + ': ' + arg.type.toString() + defaultVal;
-        }).join(', ') + ')';
+  if (!field.args || !field.args.length) {
+    return '';
+  }
+  return (
+    '(' +
+    field.args
+      .map(function(arg) {
+        const defaultVal = arg.defaultValue ? ' = ' + arg.defaultValue : '';
+        return arg.name + ': ' + arg.type.toString() + defaultVal;
+      })
+      .join(', ') +
+    ')'
+  );
 }
 
 function setDefaultDiffOptions(options) {
-    options = options || {};
-    options.labelForThis = options.labelForThis || (this instanceof GraphQLSchema ? labelForThisSchema : labelForThisType);
-    options.labelForOther = options.labelForOther || (this instanceof GraphQLSchema ? labelForOtherSchema : labelForOtherType);
-    return options;
+  options = options || {};
+  options.labelForThis =
+    options.labelForThis ||
+    (this instanceof GraphQLSchema ? labelForThisSchema : labelForThisType);
+  options.labelForOther =
+    options.labelForOther ||
+    (this instanceof GraphQLSchema ? labelForOtherSchema : labelForOtherType);
+  return options;
 }
 
 /*****************************************************
@@ -454,26 +791,28 @@ function setDefaultDiffOptions(options) {
  * @function external:GraphQLSchema#merge
  */
 function mergeSchema(other) {
-    const merged = cloneDeep(this);
-    if (!other) {
-        return merged;
-    }
-    if (!(other instanceof GraphQLSchema)) {
-        throw new TypeError('Cannot merge with null/undefined or non-GraphQLSchema object.');
-    }
-    for (let key in this.getTypeMap()) {
-        const thisType = this.getTypeMap()[key];
-        const otherType = other.getTypeMap()[key];
-        merged._typeMap[key] = thisType.merge(otherType);
-    }
-    for (let key in other.getTypeMap()) {
-        const thisType = this.getTypeMap()[key];
-        const otherType = other.getTypeMap()[key];
-        if (!thisType) {
-            merged._typeMap[key] = otherType;
-        }
-    }
+  const merged = cloneDeep(this);
+  if (!other) {
     return merged;
+  }
+  if (!(other instanceof GraphQLSchema)) {
+    throw new TypeError(
+      'Cannot merge with null/undefined or non-GraphQLSchema object.'
+    );
+  }
+  for (let key in this.getTypeMap()) {
+    const thisType = this.getTypeMap()[key];
+    const otherType = other.getTypeMap()[key];
+    merged._typeMap[key] = thisType.merge(otherType);
+  }
+  for (let key in other.getTypeMap()) {
+    const thisType = this.getTypeMap()[key];
+    const otherType = other.getTypeMap()[key];
+    if (!thisType) {
+      merged._typeMap[key] = otherType;
+    }
+  }
+  return merged;
 }
 
 /**
@@ -485,7 +824,7 @@ function mergeSchema(other) {
  * @function external:GraphQLEnumType#merge
  */
 function overwriteType(other) {
-    return other || this;
+  return other || this;
 }
 
 /**
@@ -498,27 +837,35 @@ function overwriteType(other) {
  * @function external:GraphQLInputObjectType#merge
  */
 function mergeObjectTypes(other) {
-    const mergedType = cloneDeep(this);
-    if (!other) {
-        return mergedType;
-    }
-    if (this.constructor.name !== other.constructor.name) {
-        throw new TypeError(format('Cannot merge with different base type. this: {0}, other: {0}.', this.constructor.name, other.constructor.name));
-    }
-
-    // Set mergedType._fields if it hasn't been set yet
-    if (!mergedType._fields) {
-        mergedType.getFields();
-    }
-
-    Object.keys(other.getFields()).forEach(key => {
-        mergedType._fields[key] = other.getFields()[key];
-    });
-
-    if (this instanceof GraphQLObjectType) {
-        mergedType._interfaces = Array.from(new Set(this.getInterfaces().concat(other.getInterfaces())));
-    }
+  const mergedType = cloneDeep(this);
+  if (!other) {
     return mergedType;
+  }
+  if (this.constructor.name !== other.constructor.name) {
+    throw new TypeError(
+      format(
+        'Cannot merge with different base type. this: {0}, other: {0}.',
+        this.constructor.name,
+        other.constructor.name
+      )
+    );
+  }
+
+  // Set mergedType._fields if it hasn't been set yet
+  if (!mergedType._fields) {
+    mergedType.getFields();
+  }
+
+  Object.keys(other.getFields()).forEach(key => {
+    mergedType._fields[key] = other.getFields()[key];
+  });
+
+  if (this instanceof GraphQLObjectType) {
+    mergedType._interfaces = Array.from(
+      new Set(this.getInterfaces().concat(other.getInterfaces()))
+    );
+  }
+  return mergedType;
 }
 
 /**
@@ -528,32 +875,40 @@ function mergeObjectTypes(other) {
  * @function external:GraphQLUnionType#merge
  */
 function mergeUnionTypes(other) {
-    const mergedType = cloneDeep(this);
-    if (!other) {
-        return mergedType;
-    }
-    if (this.constructor.name !== other.constructor.name) {
-        throw new TypeError(format('Cannot merge with different base type. this: {0}, other: {0}.', this.constructor.name, other.constructor.name));
-    }
-    const thisTypes = new Map(this.getTypes().map(type => [type.name, true]));
-    mergedType._types = mergedType._types.concat(other.getTypes().filter(type => !thisTypes.get(type.name)));
+  const mergedType = cloneDeep(this);
+  if (!other) {
     return mergedType;
+  }
+  if (this.constructor.name !== other.constructor.name) {
+    throw new TypeError(
+      format(
+        'Cannot merge with different base type. this: {0}, other: {0}.',
+        this.constructor.name,
+        other.constructor.name
+      )
+    );
+  }
+  const thisTypes = new Map(this.getTypes().map(type => [type.name, true]));
+  mergedType._types = mergedType._types.concat(
+    other.getTypes().filter(type => !thisTypes.get(type.name))
+  );
+  return mergedType;
 }
 
 function format(str) {
-    let args = Array.prototype.slice.call(arguments, 1);
-    return str.replace(/{(\d+)}/g, function (match, number) {
-        return typeof args[number] != 'undefined' ? args[number] : match;
-    });
+  let args = Array.prototype.slice.call(arguments, 1);
+  return str.replace(/{(\d+)}/g, function(match, number) {
+    return typeof args[number] != 'undefined' ? args[number] : match;
+  });
 }
 
 function dedupe(diffs) {
-    const seen = new Map();
-    return diffs.filter(function(diff) {
-        if (seen.has(diff.toString())) {
-            return false;
-        }
-        seen.set(diff.toString(), true);
-        return true;
-    });
+  const seen = new Map();
+  return diffs.filter(function(diff) {
+    if (seen.has(diff.toString())) {
+      return false;
+    }
+    seen.set(diff.toString(), true);
+    return true;
+  });
 }
